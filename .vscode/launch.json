@@ -1,0 +1,27 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Flutter with Backend",
+            "type": "dart",
+            "request": "launch",
+            "program": "social-live-flutter/lib/main.dart",
+            "preLaunchTask": "Start Backend Server",
+            "console": "debugConsole"
+        },
+        {
+            "name": "Flutter Only",
+            "type": "dart",
+            "request": "launch",
+            "program": "social-live-flutter/lib/main.dart"
+        }
+    ],
+    "compounds": [
+        {
+            "name": "Launch Full App",
+            "configurations": [
+                "Flutter with Backend"
+            ]
+        }
+    ]
+}

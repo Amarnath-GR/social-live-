@@ -1,0 +1,11 @@
+🚀 Quick Backend Server running on port 2307
+📡 Local access: http://localhost:2307/api/v1
+📱 Mobile/Emulator access: http://192.168.1.6:2307/api/v1
+🌐 Network access: http://0.0.0.0:2307/api/v1
+✅ Health check: http://localhost:2307/api/v1/health
+
+📋 Demo accounts:
+- admin@demo.com / Demo123!
+- john@demo.com / Demo123!
+
+🔧 Flutter app should connect to: http://192.168.1.6:2307/api/v1
