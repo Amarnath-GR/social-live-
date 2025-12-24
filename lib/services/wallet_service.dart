@@ -1,197 +1,151 @@
-import 'api_client.dart';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+import '../models/wallet_model.dart';
 
 class WalletService {
-  static final ApiClient _apiClient = ApiClient();
+  static const String baseUrl = 'http://localhost:3000';
+  String? _token;
 
-  static Future<Map<String, dynamic>> getBalance(String? accountId) async {
-    try {
-      final response = await _apiClient.get('/wallet');
-      
-      if (response.data['success'] == true) {
-        return {
-          'success': true,
-          'balance': response.data['data']['balance'] ?? 0.0,
-          'wallet': response.data['data']
-        };
-      }
-      
-      return {
-        'success': false,
-        'message': response.data['message'] ?? 'Failed to get balance'
-      };
-    } catch (e) {
-      return {'success': false, 'message': 'Balance fetch failed: $e'};
-    }
+  void setToken(String token) {
+    _token = token;
   }
 
-  static Future<Map<String, dynamic>> getJournalEntries({
-    String? accountId,
-    int page = 1,
-    int limit = 20,
-  }) async {
-    try {
-      final queryParams = <String, dynamic>{
-        'page': page,
-        'limit': limit,
-      };
-      
-      if (accountId != null) {
-        queryParams['accountId'] = accountId;
-      }
+  Map<String, String> get _headers {
+    final headers = {
+      'Content-Type': 'application/json',
+    };
+    if (_token != null) {
+      headers['Authorization'] = 'Bearer $_token';
+    }
+    return headers;
+  }
 
-      final response = await _apiClient.get(
-        '/wallet/transactions',
-        queryParameters: queryParams,
+  Future<WalletModel?> getWallet() async {
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/api/wallet'),
+        headers: _headers,
       );
-      
-      if (response.data['success'] == true) {
-        final data = response.data['data'];
-        List<Map<String, dynamic>> transactions = [];
-        
-        if (data is List) {
-          transactions = List<Map<String, dynamic>>.from(data);
-        } else if (data is Map && data['transactions'] != null) {
-          transactions = List<Map<String, dynamic>>.from(data['transactions']);
-        } else if (data is Map && data['entries'] != null) {
-          transactions = List<Map<String, dynamic>>.from(data['entries']);
-        }
-        
-        return {
-          'success': true,
-          'data': transactions,
-          'pagination': data is Map ? (data['pagination'] ?? {}) : {},
-        };
+
+      if (response.statusCode == 200) {
+        return WalletModel.fromJson(jsonDecode(response.body));
       }
-      
-      return {
-        'success': false,
-        'message': response.data['message'] ?? 'Failed to get transactions'
-      };
     } catch (e) {
-      // Return empty data instead of error for better UX
-      return {
-        'success': true,
-        'data': [],
-        'pagination': {},
-      };
+      print('Error getting wallet: $e');
+    }
+    return null;
+  }
+
+  Future<List<TransactionModel>> getTransactions() async {
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/api/wallet/transactions'),
+        headers: _headers,
+      );
+
+      if (response.statusCode == 200) {
+        final List<dynamic> data = jsonDecode(response.body);
+        return data.map((json) => TransactionModel.fromJson(json)).toList();
+      }
+    } catch (e) {
+      print('Error getting transactions: $e');
+    }
+    return [];
+  }
+
+  Future<List<OrderModel>> getOrders() async {
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/api/orders'),
+        headers: _headers,
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final List<dynamic> orders = data['orders'] ?? data;
+        return orders.map((json) => OrderModel.fromJson(json)).toList();
+      }
+    } catch (e) {
+      print('Error getting orders: $e');
+    }
+    return [];
+  }
+
+  Future<void> buyCoinPackage(int coins) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/api/wallet/buy-coins'),
+      headers: _headers,
+      body: jsonEncode({'coins': coins}),
+    );
+
+    if (response.statusCode != 200) {
+      throw Exception('Failed to buy coins: ${response.body}');
     }
   }
 
-  static Future<Map<String, dynamic>> transfer({
-    required String fromAccountId,
-    required String toAccountId,
-    required double amount,
-    required String description,
-    String? referenceId,
-  }) async {
-    try {
-      final response = await _apiClient.post('/wallet/transfer', data: {
-        'fromAccountId': fromAccountId,
-        'toAccountId': toAccountId,
+  Future<void> sendGift(String recipientId, String giftType, int amount) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/api/wallet/send-gift'),
+      headers: _headers,
+      body: jsonEncode({
+        'recipientId': recipientId,
+        'giftType': giftType,
         'amount': amount,
-        'description': description,
-        'referenceId': referenceId,
-      });
-      
-      if (response.data['success'] == true) {
-        return {
-          'success': true,
-          'transaction': response.data['data']
-        };
-      }
-      
-      return {
-        'success': false,
-        'message': response.data['message'] ?? 'Transfer failed'
-      };
-    } catch (e) {
-      return {'success': false, 'message': 'Transfer failed: $e'};
+      }),
+    );
+
+    if (response.statusCode != 200) {
+      throw Exception('Failed to send gift: ${response.body}');
     }
   }
 
-  static Future<Map<String, dynamic>> holdInEscrow({
-    required String userAccountId,
-    required String escrowAccountId,
-    required double amount,
-    required String description,
-    String? referenceId,
-  }) async {
-    try {
-      final response = await _apiClient.post('/wallet/escrow/hold', data: {
-        'userAccountId': userAccountId,
-        'escrowAccountId': escrowAccountId,
-        'amount': amount,
-        'description': description,
-        'referenceId': referenceId,
-      });
-      
-      if (response.data['success'] == true) {
-        return {
-          'success': true,
-          'escrow': response.data['data']
-        };
-      }
-      
-      return {
-        'success': false,
-        'message': response.data['message'] ?? 'Escrow hold failed'
-      };
-    } catch (e) {
-      return {'success': false, 'message': 'Escrow hold failed: $e'};
+  Future<void> topUpWallet(int amount) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/api/wallet/top-up'),
+      headers: _headers,
+      body: jsonEncode({'amount': amount}),
+    );
+
+    if (response.statusCode != 200) {
+      throw Exception('Failed to top up wallet: ${response.body}');
     }
   }
 
-  static Future<Map<String, dynamic>> releaseFromEscrow({
-    required String escrowAccountId,
-    required String toAccountId,
-    required double amount,
-    required String description,
-    String? referenceId,
-  }) async {
-    try {
-      final response = await _apiClient.post('/wallet/escrow/release', data: {
-        'escrowAccountId': escrowAccountId,
-        'toAccountId': toAccountId,
-        'amount': amount,
-        'description': description,
-        'referenceId': referenceId,
-      });
-      
-      if (response.data['success'] == true) {
-        return {
-          'success': true,
-          'release': response.data['data']
-        };
-      }
-      
-      return {
-        'success': false,
-        'message': response.data['message'] ?? 'Escrow release failed'
-      };
-    } catch (e) {
-      return {'success': false, 'message': 'Escrow release failed: $e'};
+  // Add money to wallet (amount in dollars, converted to cents for backend)
+  Future<WalletModel> addMoney(double amount) async {
+    final amountInCents = (amount * 100).round();
+    final response = await http.post(
+      Uri.parse('$baseUrl/api/wallet/credit'),
+      headers: _headers,
+      body: jsonEncode({
+        'amount': amountInCents,
+        'description': 'Added money to wallet',
+      }),
+    );
+
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      return WalletModel.fromJson(data['data']);
+    } else {
+      throw Exception('Failed to add money: ${response.body}');
     }
   }
 
-  static Future<Map<String, dynamic>> reconcileAccount(String accountId) async {
-    try {
-      final response = await _apiClient.post('/wallet/reconcile', data: {
-        'accountId': accountId,
-      });
-      
-      if (response.data['success'] == true) {
-        return {
-          'success': true,
-          'reconciliation': response.data['data']
-        };
-      }
-      
-      return {
-        'success': false,
-        'message': response.data['message'] ?? 'Reconciliation failed'
-      };
-    } catch (e) {
-      return {'success': false, 'message': 'Reconciliation failed: $e'};
+  // Purchase product with wallet balance
+  Future<Map<String, dynamic>> purchaseProduct(String productId, int quantity) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/api/marketplace/purchase'),
+      headers: _headers,
+      body: jsonEncode({
+        'productId': productId,
+        'quantity': quantity,
+      }),
+    );
+
+    if (response.statusCode == 200 || response.statusCode == 201) {
+      return jsonDecode(response.body);
+    } else {
+      throw Exception('Failed to purchase product: ${response.body}');
     }
   }
 }

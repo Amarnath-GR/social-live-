@@ -10,45 +10,62 @@ class CommentsService {
         'limit': limit,
       });
 
-      if (response.data['success'] == true) {
-        final data = response.data['data'];
+      // Backend returns { comments: [...], pagination: {...} }
+      if (response.data != null) {
+        final data = response.data;
         List<Map<String, dynamic>> comments = [];
         
-        if (data is List) {
+        // Handle direct response format from backend
+        if (data['comments'] != null) {
+          comments = List<Map<String, dynamic>>.from(data['comments']);
+        } else if (data is List) {
           comments = List<Map<String, dynamic>>.from(data);
-        } else if (data is Map) {
-          comments = List<Map<String, dynamic>>.from(data['comments'] ?? data['data'] ?? []);
+        } else if (data['data'] != null) {
+          if (data['data'] is List) {
+            comments = List<Map<String, dynamic>>.from(data['data']);
+          } else if (data['data']['comments'] != null) {
+            comments = List<Map<String, dynamic>>.from(data['data']['comments']);
+          }
         }
+        
+        // Check pagination info
+        final pagination = data['pagination'];
+        final hasMore = pagination != null 
+            ? (pagination['page'] < pagination['totalPages']) 
+            : false;
         
         return {
           'success': true,
           'comments': comments,
-          'hasMore': data is Map ? (data['hasMore'] ?? false) : false,
+          'hasMore': hasMore,
         };
       }
       
-      return {'success': false, 'message': response.data['message'] ?? 'Failed to load comments'};
+      return {'success': false, 'message': 'Failed to load comments'};
     } catch (e) {
+      print('Error loading comments: $e');
       return {'success': false, 'message': 'Network error: ${e.toString()}'};
     }
   }
 
   static Future<Map<String, dynamic>> addComment(String postId, String content) async {
     try {
-      final response = await _apiClient.post('/comments', data: {
-        'postId': postId,
+      // Backend expects POST to /comments/post/:postId with content in body
+      final response = await _apiClient.post('/comments/post/$postId', data: {
         'content': content,
       });
 
-      if (response.data['success'] == true) {
+      // Backend returns the comment object directly
+      if (response.data != null) {
         return {
           'success': true,
-          'comment': response.data['data'],
+          'comment': response.data,
         };
       }
       
-      return {'success': false, 'message': response.data['message'] ?? 'Failed to add comment'};
+      return {'success': false, 'message': 'Failed to add comment'};
     } catch (e) {
+      print('Error adding comment: $e');
       return {'success': false, 'message': 'Network error: ${e.toString()}'};
     }
   }

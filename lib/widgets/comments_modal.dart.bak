@@ -59,6 +59,8 @@ class _CommentsModalState extends State<CommentsModal> {
   }
 
   Future<void> _loadComments() async {
+    print('Loading comments for post: ${widget.postId}');
+    
     setState(() {
       _isLoading = true;
       _currentPage = 1;
@@ -66,12 +68,17 @@ class _CommentsModalState extends State<CommentsModal> {
 
     final result = await CommentsService.getComments(widget.postId, page: 1);
     
+    print('Load comments result: $result');
+    
     if (result['success']) {
       setState(() {
         _comments = List<Map<String, dynamic>>.from(result['comments']);
         _hasMore = result['hasMore'] ?? false;
         _currentPage = 2;
       });
+      print('Loaded ${_comments.length} comments');
+    } else {
+      print('Failed to load comments: ${result['message']}');
     }
     
     setState(() {
@@ -103,11 +110,15 @@ class _CommentsModalState extends State<CommentsModal> {
     final content = _commentController.text.trim();
     if (content.isEmpty || _isSubmitting) return;
 
+    print('Submitting comment for post: ${widget.postId}');
+
     setState(() {
       _isSubmitting = true;
     });
 
     final result = await CommentsService.addComment(widget.postId, content);
+    
+    print('Submit comment result: $result');
     
     if (result['success']) {
       if (mounted) {
@@ -115,12 +126,14 @@ class _CommentsModalState extends State<CommentsModal> {
           _comments.insert(0, result['comment']);
           _commentController.clear();
         });
+        print('Comment added successfully');
       }
     } else {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(result['message'] ?? 'Failed to add comment')),
         );
+        print('Failed to add comment: ${result['message']}');
       }
     }
     
