@@ -6,9 +6,23 @@ Flutter mobile application for the Social Live MVP platform.
 
 ### Prerequisites
 - Flutter SDK 3.9.2+
-- NestJS backend running on port 3000
+- Node.js and npm (for backend)
+- NestJS backend in `../social-live-mvp`
 
-### Setup Instructions
+### Easy Start (Recommended)
+
+**Windows:**
+```bash
+# Double-click or run:
+start.bat
+
+# Or using PowerShell:
+.\start.ps1
+```
+
+This automatically starts both backend and Flutter app!
+
+### Manual Setup
 
 1. **Start the Backend First**
    ```bash

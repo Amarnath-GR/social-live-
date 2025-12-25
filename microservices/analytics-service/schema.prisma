@@ -1,0 +1,70 @@
+// Analytics Database Schema
+
+model AnalyticsEvent {
+  id            String   @id @default(cuid())
+  eventId       String   @unique
+  eventType     String
+  userId        String
+  sessionId     String
+  timestamp     DateTime @default(now())
+  schemaVersion String
+  platform      String
+  userAgent     String?
+  ipAddress     String?
+  eventData     Json
+  createdAt     DateTime @default(now())
+
+  @@index([eventType, timestamp])
+  @@index([userId, timestamp])
+  @@index([sessionId, timestamp])
+  @@index([timestamp])
+  @@map("analytics_events")
+}
+
+model AnalyticsAggregation {
+  id        String   @id @default(cuid())
+  timeframe String   // hour, day, week, month
+  eventType String
+  timestamp DateTime
+  count     Int
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  @@unique([timeframe, eventType, timestamp], name: "timeframe_eventType_timestamp")
+  @@index([timeframe, timestamp])
+  @@map("analytics_aggregations")
+}
+
+model UserSession {
+  id          String   @id @default(cuid())
+  sessionId   String   @unique
+  userId      String
+  startTime   DateTime @default(now())
+  endTime     DateTime?
+  duration    Int?     // in seconds
+  pageViews   Int      @default(0)
+  platform    String
+  userAgent   String?
+  ipAddress   String?
+  referrer    String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId, startTime])
+  @@index([sessionId])
+  @@map("user_sessions_analytics")
+}
+
+model ConversionFunnel {
+  id          String   @id @default(cuid())
+  funnelName  String
+  stepName    String
+  stepOrder   Int
+  eventType   String
+  eventFilter Json?
+  createdAt   DateTime @default(now())
+
+  @@unique([funnelName, stepOrder])
+  @@map("conversion_funnels")
+}

@@ -1,0 +1,21 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: backend-api-pdb
+  namespace: social-live-backend
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: backend-api
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: streaming-service-pdb
+  namespace: social-live-streaming
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: streaming-service

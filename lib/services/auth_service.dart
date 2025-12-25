@@ -1,111 +1,109 @@
-import 'package:shared_preferences/shared_preferences.dart';
-import 'api_client.dart';
+import 'package:flutter/foundation.dart';
+import '../models/user_model.dart';
 
-class AuthService {
-  static const String _tokenKey = 'access_token';
-  static const String _refreshTokenKey = 'refresh_token';
-  static final ApiClient _apiClient = ApiClient();
+class AuthService extends ChangeNotifier {
+  static final AuthService _instance = AuthService._internal();
+  factory AuthService() => _instance;
+  AuthService._internal();
 
-  static Future<Map<String, dynamic>> login(String email, String password) async {
-    try {
-      final response = await _apiClient.post('/auth/login', data: {
-        'email': email,
-        'password': password,
-      });
+  bool _isLoggedIn = false;
+  String? _currentUserId;
+  String? _currentUserEmail;
 
-      final data = response.data;
-      
-      if (data is Map<String, dynamic>) {
-        if (data.containsKey('accessToken') && data.containsKey('user')) {
-          await _saveTokens(
-            data['accessToken'],
-            data['refreshToken'] ?? '',
-          );
-          return {'success': true, 'user': data['user']};
-        }
-        
-        if (data['success'] == true && data.containsKey('data')) {
-          final responseData = data['data'];
-          if (responseData.containsKey('tokens')) {
-            await _saveTokens(
-              responseData['tokens']['accessToken'],
-              responseData['tokens']['refreshToken'],
-            );
-            return {'success': true, 'user': responseData['user']};
-          }
-        }
-        
-        return {'success': false, 'message': data['message'] ?? 'Login failed'};
-      }
-      
-      return {'success': false, 'message': 'Invalid response format'};
-    } catch (e) {
-      return {'success': false, 'message': _getErrorMessage(e)};
+  bool get isLoggedIn => _isLoggedIn;
+  String? get currentUserId => _currentUserId;
+  String? get currentUserEmail => _currentUserEmail;
+
+  Future<bool> login(String email, String password) async {
+    if (email.isNotEmpty && password.isNotEmpty) {
+      _isLoggedIn = true;
+      _currentUserId = 'user_${DateTime.now().millisecondsSinceEpoch}';
+      _currentUserEmail = email;
+      notifyListeners();
+      return true;
     }
+    return false;
   }
 
-  static Future<Map<String, dynamic>> testConnection() async {
-    try {
-      final response = await _apiClient.get('/health');
-      return {
-        'success': true, 
-        'message': 'Backend connected successfully', 
-        'data': response.data
-      };
-    } catch (e) {
-      return {
-        'success': false, 
-        'message': _getErrorMessage(e), 
-        'details': e.toString()
-      };
+  Future<bool> register(String email, String password, String name) async {
+    if (email.isNotEmpty && password.isNotEmpty && name.isNotEmpty) {
+      _isLoggedIn = true;
+      _currentUserId = 'user_${DateTime.now().millisecondsSinceEpoch}';
+      _currentUserEmail = email;
+      notifyListeners();
+      return true;
     }
+    return false;
   }
 
-  static Future<void> _saveTokens(String accessToken, String refreshToken) async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_tokenKey, accessToken);
-      if (refreshToken.isNotEmpty) {
-        await prefs.setString(_refreshTokenKey, refreshToken);
-      }
-    } catch (e) {
-      // Ignore storage errors
-    }
+  Future<void> signOut() async {
+    _isLoggedIn = false;
+    _currentUserId = null;
+    _currentUserEmail = null;
+    notifyListeners();
   }
 
-  static Future<String?> getToken() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      return prefs.getString(_tokenKey);
-    } catch (e) {
-      return null;
-    }
+  Future<bool> resetPassword(String email) async {
+    await Future.delayed(Duration(seconds: 1));
+    return true;
   }
 
-  static Future<bool> isLoggedIn() async {
-    try {
-      final token = await getToken();
-      return token != null && token.isNotEmpty;
-    } catch (e) {
-      return false;
-    }
+  Future<void> logout() async {
+    await signOut();
   }
 
-  static Future<void> logout() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.remove(_tokenKey);
-      await prefs.remove(_refreshTokenKey);
-    } catch (e) {
-      // Ignore storage errors
+  Future<String?> getToken() async {
+    // Return mock token for authenticated user
+    if (_isLoggedIn) {
+      return 'mock_token_${_currentUserId}';
     }
+    return null;
   }
 
-  static String _getErrorMessage(dynamic error) {
-    if (error.toString().contains('Connection timeout') || 
-        error.toString().contains('Cannot connect')) {
-      return 'Cannot connect to server. Please check if the backend is running.';
-    }
-    return error.toString();
+  // Admin functions
+  static Future<Map<String, dynamic>> getAllUsers() async {
+    return {
+      'success': true,
+      'users': [
+        UserModel(
+          id: '1',
+          username: 'john_doe',
+          email: 'john@demo.com',
+          name: 'John Doe',
+          role: 'user',
+          verified: true,
+          isBlocked: false,
+          createdAt: DateTime.now().subtract(const Duration(days: 30)),
+          updatedAt: DateTime.now(),
+        ),
+        UserModel(
+          id: '2',
+          username: 'jane_smith',
+          email: 'jane@demo.com',
+          name: 'Jane Smith',
+          role: 'creator',
+          verified: false,
+          isBlocked: false,
+          createdAt: DateTime.now().subtract(const Duration(days: 15)),
+          updatedAt: DateTime.now(),
+        ),
+      ],
+    };
+  }
+
+  static Future<Map<String, dynamic>> suspendUser(String userId) async {
+    return {'success': true, 'message': 'User suspended'};
+  }
+
+  static Future<Map<String, dynamic>> activateUser(String userId) async {
+    return {'success': true, 'message': 'User activated'};
+  }
+
+  static Future<Map<String, dynamic>> deleteUser(String userId) async {
+    return {'success': true, 'message': 'User deleted'};
+  }
+
+  static Future<Map<String, dynamic>> resetUserPassword(String userId) async {
+    return {'success': true, 'message': 'Password reset'};
   }
 }

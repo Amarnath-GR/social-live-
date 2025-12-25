@@ -1,6 +1,12 @@
 import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
 import 'login_screen.dart';
+import 'video_feed_screen.dart';
+import 'marketplace_screen.dart';
+import 'wallet_screen.dart';
+import 'profile_screen.dart';
+import 'live_stream_screen.dart';
+import 'video_upload_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -20,7 +26,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _checkLoginStatus() async {
-    final loggedIn = await AuthService.isLoggedIn();
+    final loggedIn = AuthService().isLoggedIn;
     setState(() {
       _isLoggedIn = loggedIn;
     });
@@ -29,42 +35,57 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Social Live MVP'),
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        actions: [
-          if (_isLoggedIn)
-            IconButton(
-              icon: const Icon(Icons.logout),
-              onPressed: _handleLogout,
-            ),
-        ],
-      ),
       body: IndexedStack(
         index: _selectedIndex,
-        children: const [
-          FeedTab(),
-          WalletTab(),
-          StreamingTab(),
-          ProfileTab(),
+        children: [
+          VideoFeedScreen(), // TikTok-style video feed
+          MarketplaceScreen(), // E-commerce marketplace
+          WalletScreen(), // Enhanced wallet with transaction history
+          ProfileScreen(), // TikTok-style profile
         ],
       ),
       bottomNavigationBar: BottomNavigationBar(
         type: BottomNavigationBarType.fixed,
         currentIndex: _selectedIndex,
-        onTap: (index) => setState(() => _selectedIndex = index),
-        items: const [
+        onTap: (index) {
+          if (index == 2) {
+            // Show create options when middle button is tapped
+            _showCreateOptions();
+          } else {
+            setState(() {
+              _selectedIndex = index > 2 ? index - 1 : index;
+            });
+          }
+        },
+        backgroundColor: Colors.black,
+        selectedItemColor: Colors.white,
+        unselectedItemColor: Colors.grey,
+        items: [
           BottomNavigationBarItem(
             icon: Icon(Icons.home),
-            label: 'Feed',
+            label: 'For You',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.shopping_bag),
+            label: 'Shop',
+          ),
+          BottomNavigationBarItem(
+            icon: Container(
+              width: 45,
+              height: 30,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [Colors.red, Colors.pink],
+                ),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(Icons.add, color: Colors.white, size: 20),
+            ),
+            label: '',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.account_balance_wallet),
             label: 'Wallet',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.live_tv),
-            label: 'Live',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.person),
@@ -75,173 +96,108 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Future<void> _handleLogout() async {
-    await AuthService.logout();
+
+
+  void _showCreateOptions() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.black87,
+      isScrollControlled: true,
+      builder: (context) => Container(
+        padding: EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey[600],
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            SizedBox(height: 20),
+            Text(
+              'Create',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            SizedBox(height: 20),
+            ListTile(
+              leading: Container(
+                padding: EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.red,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(Icons.videocam, color: Colors.white, size: 24),
+              ),
+              title: Text('Go Live', style: TextStyle(color: Colors.white, fontSize: 18)),
+              subtitle: Text('Start live streaming', style: TextStyle(color: Colors.grey)),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => LiveStreamScreen()),
+                );
+              },
+            ),
+            SizedBox(height: 10),
+            ListTile(
+              leading: Container(
+                padding: EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.blue,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(Icons.video_library, color: Colors.white, size: 24),
+              ),
+              title: Text('Record Video', style: TextStyle(color: Colors.white, fontSize: 18)),
+              subtitle: Text('Create a video with camera', style: TextStyle(color: Colors.grey)),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => VideoUploadScreen()),
+                );
+              },
+            ),
+            SizedBox(height: 10),
+            ListTile(
+              leading: Container(
+                padding: EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.green,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(Icons.camera_alt, color: Colors.white, size: 24),
+              ),
+              title: Text('Take Photo', style: TextStyle(color: Colors.white, fontSize: 18)),
+              subtitle: Text('Capture a photo with camera', style: TextStyle(color: Colors.grey)),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => VideoUploadScreen()),
+                );
+              },
+            ),
+            SizedBox(height: 20),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _logout() async {
+    await AuthService().logout();
     if (mounted) {
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(builder: (context) => const LoginScreen()),
       );
     }
-  }
-}
-
-class FeedTab extends StatelessWidget {
-  const FeedTab({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return const Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            Icons.feed,
-            size: 80,
-            color: Colors.deepPurple,
-          ),
-          SizedBox(height: 20),
-          Text(
-            'Social Feed',
-            style: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          SizedBox(height: 10),
-          Text(
-            'Posts and updates will appear here',
-            style: TextStyle(
-              fontSize: 16,
-              color: Colors.grey,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class WalletTab extends StatelessWidget {
-  const WalletTab({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return const Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            Icons.account_balance_wallet,
-            size: 80,
-            color: Colors.green,
-          ),
-          SizedBox(height: 20),
-          Text(
-            'Digital Wallet',
-            style: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          SizedBox(height: 10),
-          Text(
-            'Balance: \$0.00',
-            style: TextStyle(
-              fontSize: 18,
-              color: Colors.green,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          SizedBox(height: 5),
-          Text(
-            'Wallet operations available via API',
-            style: TextStyle(
-              fontSize: 16,
-              color: Colors.grey,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class StreamingTab extends StatelessWidget {
-  const StreamingTab({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return const Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            Icons.live_tv,
-            size: 80,
-            color: Colors.red,
-          ),
-          SizedBox(height: 20),
-          Text(
-            'Live Streaming',
-            style: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          SizedBox(height: 10),
-          Text(
-            'No active streams',
-            style: TextStyle(
-              fontSize: 16,
-              color: Colors.grey,
-            ),
-          ),
-          SizedBox(height: 5),
-          Text(
-            'Streaming APIs ready for integration',
-            style: TextStyle(
-              fontSize: 14,
-              color: Colors.grey,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class ProfileTab extends StatelessWidget {
-  const ProfileTab({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return const Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            Icons.person,
-            size: 80,
-            color: Colors.blue,
-          ),
-          SizedBox(height: 20),
-          Text(
-            'User Profile',
-            style: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          SizedBox(height: 10),
-          Text(
-            'Profile management',
-            style: TextStyle(
-              fontSize: 16,
-              color: Colors.grey,
-            ),
-          ),
-        ],
-      ),
-    );
   }
 }

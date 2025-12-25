@@ -72,42 +72,24 @@ class ApiClient {
     }
   }
 
-  Future<Response<T>> get<T>(
-    String path, {
-    Map<String, dynamic>? queryParameters,
-    Options? options,
-  }) async {
-    try {
-      return await _dio.get<T>(
-        path,
-        queryParameters: queryParameters,
-        options: options,
-      );
-    } on DioException catch (e) {
-      throw _handleDioError(e);
-    } catch (e) {
-      throw ApiException(message: 'Unexpected error: $e', statusCode: 0);
-    }
+  Future<Response<T>> get<T>(String path, {Map<String, dynamic>? queryParameters, Options? options}) async {
+    throw ApiException(message: 'Backend disabled', statusCode: 0);
   }
 
-  Future<Response<T>> post<T>(
-    String path, {
-    dynamic data,
-    Map<String, dynamic>? queryParameters,
-    Options? options,
-  }) async {
-    try {
-      return await _dio.post<T>(
-        path,
-        data: data,
-        queryParameters: queryParameters,
-        options: options,
-      );
-    } on DioException catch (e) {
-      throw _handleDioError(e);
-    } catch (e) {
-      throw ApiException(message: 'Unexpected error: $e', statusCode: 0);
-    }
+  Future<Response<T>> post<T>(String path, {dynamic data, Map<String, dynamic>? queryParameters, Options? options}) async {
+    throw ApiException(message: 'Backend disabled', statusCode: 0);
+  }
+
+  Future<Response<T>> put<T>(String path, {dynamic data, Map<String, dynamic>? queryParameters, Options? options}) async {
+    throw ApiException(message: 'Backend disabled', statusCode: 0);
+  }
+
+  Future<Response<T>> delete<T>(String path, {dynamic data, Map<String, dynamic>? queryParameters, Options? options}) async {
+    throw ApiException(message: 'Backend disabled', statusCode: 0);
+  }
+
+  Future<Response<T>> uploadFile<T>(String path, String filePath, {String fieldName = 'file', Map<String, dynamic>? data, Options? options}) async {
+    throw ApiException(message: 'Backend disabled', statusCode: 0);
   }
 
   ApiException _handleDioError(DioException error) {

@@ -1,12 +1,9 @@
-import 'dart:io';
-
 class ApiConfig {
-  static String get baseUrl {
-    if (Platform.isAndroid) {
-      return 'http://192.168.1.6:3000/api/v1';
-    }
-    return 'http://localhost:3000/api/v1';
-  }
+  static String get baseUrl => '';
   
-  static const Duration timeout = Duration(seconds: 10);
+  static List<String> get fallbackUrls => [];
+  
+  static const Duration timeout = Duration(seconds: 1);
+  static const Duration connectTimeout = Duration(seconds: 1);
+  static const Duration receiveTimeout = Duration(seconds: 1);
 }

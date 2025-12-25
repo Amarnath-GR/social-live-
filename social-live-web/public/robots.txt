@@ -1,0 +1,8 @@
+User-agent: *
+Disallow: /admin/
+Disallow: /dashboard/
+Disallow: /api/
+Disallow: /login
+
+# This is a private dashboard - no public indexing
+Disallow: /

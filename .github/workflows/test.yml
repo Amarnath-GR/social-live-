@@ -1,0 +1,152 @@
+name: Comprehensive Testing
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  backend-tests:
+    runs-on: ubuntu-latest
+    
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: social-live-mvp/package-lock.json
+    
+    - name: Install dependencies
+      working-directory: ./social-live-mvp
+      run: npm ci
+    
+    - name: Generate Prisma client
+      working-directory: ./social-live-mvp
+      run: npx prisma generate
+    
+    - name: Run unit tests
+      working-directory: ./social-live-mvp
+      run: npm run test:cov
+    
+    - name: Run integration tests
+      working-directory: ./social-live-mvp
+      run: npm run test:e2e
+      env:
+        DATABASE_URL: file:./test.db
+        REDIS_URL: redis://localhost:6379
+        JWT_SECRET: test-secret
+        JWT_REFRESH_SECRET: test-refresh-secret
+    
+    - name: Upload coverage reports
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./social-live-mvp/coverage/lcov.info
+        flags: backend
+
+  frontend-tests:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: social-live-web/package-lock.json
+    
+    - name: Install dependencies
+      working-directory: ./social-live-web
+      run: npm ci
+    
+    - name: Run unit tests
+      working-directory: ./social-live-web
+      run: npm run test:coverage
+    
+    - name: Install Playwright browsers
+      working-directory: ./social-live-web
+      run: npx playwright install --with-deps
+    
+    - name: Run E2E tests
+      working-directory: ./social-live-web
+      run: npm run test:e2e
+      env:
+        NEXT_PUBLIC_API_URL: http://localhost:3000/api/v1
+    
+    - name: Upload coverage reports
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./social-live-web/coverage/lcov.info
+        flags: frontend
+
+  load-tests:
+    runs-on: ubuntu-latest
+    needs: [backend-tests]
+    
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: social-live-mvp/package-lock.json
+    
+    - name: Install dependencies
+      working-directory: ./social-live-mvp
+      run: npm ci
+    
+    - name: Install Artillery
+      run: npm install -g artillery
+    
+    - name: Generate Prisma client
+      working-directory: ./social-live-mvp
+      run: npx prisma generate
+    
+    - name: Seed test data
+      working-directory: ./social-live-mvp
+      run: npm run test:seed
+      env:
+        DATABASE_URL: file:./test.db
+    
+    - name: Start backend service
+      working-directory: ./social-live-mvp
+      run: npm run start:dev &
+      env:
+        DATABASE_URL: file:./test.db
+        REDIS_URL: redis://localhost:6379
+        JWT_SECRET: test-secret
+        JWT_REFRESH_SECRET: test-refresh-secret
+    
+    - name: Wait for service
+      run: sleep 30
+    
+    - name: Run load tests
+      working-directory: ./social-live-mvp
+      run: |
+        npm run test:load
+        npm run test:stress
+        npm run test:db-load

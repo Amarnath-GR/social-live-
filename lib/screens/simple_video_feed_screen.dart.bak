@@ -1,0 +1,1238 @@
+import 'package:flutter/material.dart';
+import 'package:video_player/video_player.dart';
+import 'dart:async';
+import 'package:share_plus/share_plus.dart';
+import '../widgets/comments_modal.dart';
+
+class SimpleVideoFeedScreen extends StatefulWidget {
+  const SimpleVideoFeedScreen({Key? key}) : super(key: key);
+  
+  @override
+  SimpleVideoFeedScreenState createState() => SimpleVideoFeedScreenState();
+}
+
+class SimpleVideoFeedScreenState extends State<SimpleVideoFeedScreen> with TickerProviderStateMixin, WidgetsBindingObserver {
+  PageController _pageController = PageController();
+  List<VideoData> _videos = [];
+  int _currentIndex = 0;
+  bool _isLoading = true;
+  Map<int, VideoPlayerController> _controllers = {};
+  static const int _maxCachedControllers = 5;
+  
+  // Auto-scroll functionality
+  Timer? _autoScrollTimer;
+  Map<int, int> _playCount = {};
+  bool _isManualScrolling = false;
+  
+  // Animation controllers
+  late AnimationController _heartAnimationController;
+  late Animation<double> _heartAnimation;
+  bool _showHeart = false;
+  
+  // Track if screen is visible
+  bool _isScreenVisible = true;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _heartAnimationController = AnimationController(
+      duration: Duration(milliseconds: 1000),
+      vsync: this,
+    );
+    _heartAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _heartAnimationController, curve: Curves.elasticOut),
+    );
+    _loadVideos();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    // Pause videos when app goes to background
+    if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
+      _pauseCurrentVideo();
+    } else if (state == AppLifecycleState.resumed && _isScreenVisible) {
+      _resumeCurrentVideo();
+    }
+  }
+
+  // Called when screen visibility changes in IndexedStack
+  @override
+  void didUpdateWidget(SimpleVideoFeedScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Check if we're becoming visible or hidden
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final isVisible = ModalRoute.of(context)?.isCurrent ?? false;
+      if (isVisible != _isScreenVisible) {
+        setState(() {
+          _isScreenVisible = isVisible;
+        });
+        if (isVisible) {
+          _resumeCurrentVideo();
+        } else {
+          _pauseCurrentVideo();
+        }
+      }
+    });
+  }
+
+  void _pauseCurrentVideo() {
+    _autoScrollTimer?.cancel();
+    if (_controllers[_currentIndex] != null && _controllers[_currentIndex]!.value.isInitialized) {
+      _controllers[_currentIndex]!.pause();
+    }
+  }
+
+  void _resumeCurrentVideo() {
+    if (_controllers[_currentIndex] != null && _controllers[_currentIndex]!.value.isInitialized) {
+      _controllers[_currentIndex]!.play();
+      _startAutoScrollTimer(_currentIndex);
+    }
+  }
+
+  // Public methods to control video playback from parent
+  void pauseVideos() {
+    _pauseCurrentVideo();
+  }
+
+  void resumeVideos() {
+    _resumeCurrentVideo();
+  }
+
+  Future<void> _loadVideos() async {
+    // Real video URLs for testing
+    final videoUrls = [
+      'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
+      'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4',
+      'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4',
+      'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4',
+      'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4',
+      'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4',
+      'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerMeltdowns.mp4',
+      'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4',
+      'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/SubaruOutbackOnStreetAndDirt.mp4',
+      'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4',
+    ];
+
+    final videos = videoUrls.asMap().entries.map((entry) {
+      final index = entry.key;
+      final url = entry.value;
+      return VideoData(
+        id: 'video_$index',
+        videoUrl: url,
+        title: 'Amazing Video ${index + 1}',
+        description: 'This is an amazing video with great content! #trending #viral #amazing',
+        creator: 'Creator ${index + 1}',
+        likes: 1000 + (index * 500),
+        comments: 50 + (index * 25),
+        shares: 10 + (index * 5),
+        duration: 30000 + (index * 5000),
+      );
+    }).toList();
+
+    setState(() {
+      _videos = videos;
+      _isLoading = false;
+    });
+
+    if (_videos.isNotEmpty) {
+      _initializeVideo(0);
+    }
+  }
+
+  void _initializeVideo(int index) {
+    if (_controllers[index] != null) return;
+
+    final video = _videos[index];
+    final controller = VideoPlayerController.network(video.videoUrl);
+    
+    controller.initialize().then((_) {
+      if (mounted) {
+        setState(() {
+          _controllers[index] = controller;
+        });
+        
+        if (index == _currentIndex) {
+          controller.play();
+          controller.setLooping(true);
+          _startAutoScrollTimer(index);
+        }
+        
+        controller.addListener(() => _onVideoPositionChanged(index));
+      }
+    }).catchError((error) {
+      print('Error initializing video $index: $error');
+    });
+
+    _cleanupControllers(index);
+  }
+
+  void _onVideoPositionChanged(int index) {
+    final controller = _controllers[index];
+    if (controller == null || !controller.value.isInitialized) return;
+    
+    final position = controller.value.position;
+    final duration = controller.value.duration;
+    
+    if (position >= duration && duration.inMilliseconds > 0) {
+      _playCount[index] = (_playCount[index] ?? 0) + 1;
+      
+      if (_playCount[index]! >= 2 && !_isManualScrolling && index == _currentIndex) {
+        _autoScrollToNext();
+      }
+    }
+  }
+
+  void _startAutoScrollTimer(int index) {
+    _autoScrollTimer?.cancel();
+    
+    final video = _videos[index];
+    final duration = Duration(milliseconds: video.duration);
+    
+    _autoScrollTimer = Timer(duration * 2, () {
+      if (!_isManualScrolling && index == _currentIndex) {
+        _autoScrollToNext();
+      }
+    });
+  }
+
+  void _autoScrollToNext() {
+    if (_currentIndex < _videos.length - 1) {
+      _pageController.nextPage(
+        duration: Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
+      );
+    }
+  }
+
+  void _cleanupControllers(int currentIndex) {
+    final controllersToRemove = <int>[];
+    
+    _controllers.forEach((index, controller) {
+      if ((index - currentIndex).abs() > 2) {
+        controllersToRemove.add(index);
+      }
+    });
+
+    for (final index in controllersToRemove) {
+      _controllers[index]?.dispose();
+      _controllers.remove(index);
+    }
+
+    if (_controllers.length > _maxCachedControllers) {
+      final sortedIndexes = _controllers.keys.toList()
+        ..sort((a, b) => (a - currentIndex).abs().compareTo((b - currentIndex).abs()));
+      
+      for (int i = _maxCachedControllers; i < sortedIndexes.length; i++) {
+        final index = sortedIndexes[i];
+        _controllers[index]?.dispose();
+        _controllers.remove(index);
+      }
+    }
+  }
+
+  void _onPageChanged(int index) {
+    _isManualScrolling = true;
+    
+    Timer(Duration(milliseconds: 500), () {
+      _isManualScrolling = false;
+    });
+    
+    _autoScrollTimer?.cancel();
+    
+    if (_controllers[_currentIndex] != null) {
+      _controllers[_currentIndex]!.pause();
+    }
+
+    setState(() {
+      _currentIndex = index;
+    });
+
+    _initializeVideo(index);
+    if (_controllers[index] != null && _controllers[index]!.value.isInitialized) {
+      _controllers[index]!.play();
+      _startAutoScrollTimer(index);
+    }
+
+    if (index + 1 < _videos.length) {
+      _initializeVideo(index + 1);
+    }
+    if (index + 2 < _videos.length) {
+      _initializeVideo(index + 2);
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _autoScrollTimer?.cancel();
+    _heartAnimationController.dispose();
+    _controllers.values.forEach((controller) => controller.dispose());
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isLoading) {
+      return Scaffold(
+        backgroundColor: Colors.black,
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              CircularProgressIndicator(color: Colors.white),
+              SizedBox(height: 16),
+              Text(
+                'Loading amazing videos...',
+                style: TextStyle(color: Colors.white, fontSize: 16),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: PageView.builder(
+        controller: _pageController,
+        scrollDirection: Axis.vertical,
+        onPageChanged: _onPageChanged,
+        itemCount: _videos.length,
+        itemBuilder: (context, index) {
+          return _buildVideoPage(_videos[index], index);
+        },
+      ),
+    );
+  }
+
+  Widget _buildVideoPage(VideoData video, int index) {
+    final controller = _controllers[index];
+    
+    return Stack(
+      children: [
+        // Video Player
+        Center(
+          child: controller != null && controller.value.isInitialized
+              ? GestureDetector(
+                  onTap: () {
+                    if (controller.value.isPlaying) {
+                      controller.pause();
+                      _autoScrollTimer?.cancel();
+                    } else {
+                      controller.play();
+                      _startAutoScrollTimer(index);
+                    }
+                  },
+                  onDoubleTap: () {
+                    // Like animation
+                    final video = _videos[index];
+                    setState(() {
+                      video.isLiked = true;
+                      video.likes++;
+                    });
+                    _showHeartAnimation();
+                  },
+                  child: Container(
+                    width: double.infinity,
+                    height: double.infinity,
+                    child: FittedBox(
+                      fit: BoxFit.cover,
+                      child: SizedBox(
+                        width: controller.value.size.width,
+                        height: controller.value.size.height,
+                        child: VideoPlayer(controller),
+                      ),
+                    ),
+                  ),
+                )
+              : Container(
+                  width: double.infinity,
+                  height: double.infinity,
+                  color: Colors.grey[900],
+                  child: Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        CircularProgressIndicator(color: Colors.white),
+                        SizedBox(height: 16),
+                        Text(
+                          'Loading video...',
+                          style: TextStyle(color: Colors.white),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+        ),
+
+        // Heart animation overlay
+        if (_showHeart && index == _currentIndex)
+          Center(
+            child: AnimatedBuilder(
+              animation: _heartAnimation,
+              builder: (context, child) {
+                return Transform.scale(
+                  scale: _heartAnimation.value,
+                  child: Opacity(
+                    opacity: (1.0 - _heartAnimation.value).clamp(0.0, 1.0),
+                    child: Icon(
+                      Icons.favorite,
+                      color: Colors.purple,
+                      size: 100,
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+
+        // Top indicators removed - clean feed
+
+        // Video progress indicator
+        if (controller != null && controller.value.isInitialized)
+          Positioned(
+            bottom: 0,
+            left: 0,
+            right: 0,
+            child: Container(
+              height: 3,
+              child: VideoProgressIndicator(
+                controller,
+                allowScrubbing: false,
+                colors: VideoProgressColors(
+                  playedColor: Colors.white,
+                  bufferedColor: Colors.white.withOpacity(0.3),
+                  backgroundColor: Colors.white.withOpacity(0.1),
+                ),
+              ),
+            ),
+          ),
+
+        // Right side actions
+        Positioned(
+          right: 10,
+          bottom: 140, // Moved up to avoid navigation bar
+          child: Column(
+            children: [
+              _buildActionButton(
+                icon: video.isLiked ? Icons.favorite : Icons.favorite_border,
+                color: video.isLiked ? Colors.purple : Colors.white,
+                label: _formatCount(video.likes),
+                isLiked: video.isLiked,
+                onTap: () {
+                  setState(() {
+                    video.isLiked = !video.isLiked;
+                    if (video.isLiked) {
+                      video.likes++;
+                      _showHeartAnimation();
+                    } else {
+                      video.likes--;
+                    }
+                  });
+                },
+              ),
+              SizedBox(height: 20),
+              
+              _buildActionButton(
+                icon: Icons.comment,
+                color: Colors.white,
+                label: _formatCount(video.comments),
+                onTap: () {
+                  _showCommentsModal(video);
+                },
+              ),
+              SizedBox(height: 20),
+              
+              _buildActionButton(
+                icon: Icons.share,
+                color: Colors.white,
+                label: _formatCount(video.shares),
+                onTap: () {
+                  _shareVideo(video);
+                },
+              ),
+              SizedBox(height: 20),
+              
+              GestureDetector(
+                onTap: () {
+                  _showUserProfile(video.creator);
+                },
+                child: Container(
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.white, width: 2),
+                  ),
+                  child: CircleAvatar(
+                    radius: 25,
+                    backgroundColor: Colors.blue,
+                    child: Text(
+                      video.creator[0],
+                      style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+
+        // Bottom info
+        Positioned(
+          left: 10,
+          right: 80,
+          bottom: 20, // Positioned at bottom of screen
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Creator username with verification
+              Row(
+                children: [
+                  Text(
+                    '@${video.creator.toLowerCase().replaceAll(' ', '_')}',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                    ),
+                  ),
+                  SizedBox(width: 6),
+                  Icon(
+                    Icons.verified,
+                    color: Colors.purple,
+                    size: 16,
+                  ),
+                ],
+              ),
+              SizedBox(height: 6),
+              
+              // Bio/Description
+              Text(
+                video.description,
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 14,
+                  height: 1.3,
+                ),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+              SizedBox(height: 8),
+              
+              // Hashtags in a more organized way
+              Wrap(
+                spacing: 8,
+                runSpacing: 4,
+                children: [
+                  '#trending',
+                  '#viral', 
+                  '#amazing',
+                  '#fyp',
+                ].map((hashtag) => Text(
+                  hashtag,
+                  style: TextStyle(
+                    color: Colors.purple[300],
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                  ),
+                )).toList(),
+              ),
+              SizedBox(height: 8),
+              
+              // Additional info (views, time)
+              Row(
+                children: [
+                  Icon(Icons.play_arrow, color: Colors.grey[400], size: 14),
+                  SizedBox(width: 4),
+                  Text(
+                    '${_formatCount(video.likes * 3)} views',
+                    style: TextStyle(
+                      color: Colors.grey[400],
+                      fontSize: 12,
+                    ),
+                  ),
+                  SizedBox(width: 12),
+                  Icon(Icons.access_time, color: Colors.grey[400], size: 14),
+                  SizedBox(width: 4),
+                  Text(
+                    '2h ago',
+                    style: TextStyle(
+                      color: Colors.grey[400],
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildActionButton({
+    required IconData icon,
+    required Color color,
+    required String label,
+    required VoidCallback onTap,
+    bool isLiked = false,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Column(
+        children: [
+          AnimatedContainer(
+            duration: Duration(milliseconds: 200),
+            padding: EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.black.withOpacity(0.3),
+              shape: BoxShape.circle,
+            ),
+            child: AnimatedScale(
+              scale: isLiked ? 1.2 : 1.0,
+              duration: Duration(milliseconds: 200),
+              child: Icon(
+                icon,
+                color: color,
+                size: 28,
+              ),
+            ),
+          ),
+          SizedBox(height: 4),
+          Text(
+            label,
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _formatCount(int count) {
+    if (count >= 1000000) {
+      return '${(count / 1000000).toStringAsFixed(1)}M';
+    } else if (count >= 1000) {
+      return '${(count / 1000).toStringAsFixed(1)}K';
+    }
+    return count.toString();
+  }
+
+  void _showHeartAnimation() {
+    setState(() {
+      _showHeart = true;
+    });
+    _heartAnimationController.forward().then((_) {
+      _heartAnimationController.reset();
+      setState(() {
+        _showHeart = false;
+      });
+    });
+  }
+
+  void _showCommentsModal(VideoData video) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (context) => CommentsModal(
+        postId: video.id,
+        initialCommentCount: video.comments,
+      ),
+    );
+  }
+                              '${index + 1}h ago',
+                              style: TextStyle(color: Colors.grey[500], fontSize: 12),
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: () {},
+                        icon: Icon(Icons.favorite_border, color: Colors.grey[400], size: 16),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
+          Container(
+            padding: EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.grey[800],
+              border: Border(top: BorderSide(color: Colors.grey[700]!)),
+            ),
+            child: Row(
+              children: [
+                CircleAvatar(
+                  radius: 16,
+                  backgroundColor: Colors.blue,
+                  child: Text('Me', style: TextStyle(fontSize: 12)),
+                ),
+                SizedBox(width: 12),
+                Expanded(
+                  child: TextField(
+                    style: TextStyle(color: Colors.white),
+                    decoration: InputDecoration(
+                      hintText: 'Add a comment...',
+                      hintStyle: TextStyle(color: Colors.grey[400]),
+                      border: InputBorder.none,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  onPressed: () {
+                    setState(() {
+                      video.comments++;
+                    });
+                    Navigator.pop(context);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Comment added!'),
+                        backgroundColor: Colors.green,
+                        duration: Duration(seconds: 1),
+                      ),
+                    );
+                  },
+                  icon: Icon(Icons.send, color: Colors.purple),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _shareVideo(VideoData video) {
+    setState(() {
+      video.shares++;
+    });
+    
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        padding: EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: Colors.grey[900],
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'Share to',
+              style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            SizedBox(height: 20),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              children: [
+                _buildShareOption(Icons.message, 'Messages', Colors.purple),
+                _buildShareOption(Icons.copy, 'Copy Link', Colors.deepPurple),
+                _buildShareOption(Icons.facebook, 'Facebook', Colors.purple[800]!),
+                _buildShareOption(Icons.share, 'More', Colors.grey),
+              ],
+            ),
+            SizedBox(height: 20),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(context),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.grey[800],
+                minimumSize: Size(double.infinity, 50),
+              ),
+              child: Text('Cancel', style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildShareOption(IconData icon, String label, Color color) {
+    return GestureDetector(
+      onTap: () async {
+        Navigator.pop(context);
+        
+        // If "More" option is tapped, show more sharing options
+        if (label == 'More') {
+          _showMoreShareOptions();
+        } else {
+          // For other options, show success message
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Shared via $label!'),
+              backgroundColor: Colors.green,
+              duration: Duration(seconds: 1),
+            ),
+          );
+        }
+      },
+      child: Column(
+        children: [
+          Container(
+            padding: EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: color,
+              shape: BoxShape.circle,
+            ),
+            child: Icon(icon, color: Colors.white, size: 24),
+          ),
+          SizedBox(height: 8),
+          Text(label, style: TextStyle(color: Colors.white, fontSize: 12)),
+        ],
+      ),
+    );
+  }
+
+  void _showMoreShareOptions() {
+    final video = _videos[_currentIndex];
+    final shareText = 'Check out this amazing video by @${video.creator.toLowerCase().replaceAll(' ', '_')}!\n\n'
+        '${video.description}\n\n'
+        'Watch on Social Live: https://sociallive.app/video/${video.id}';
+    
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (context) => Container(
+        padding: EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: Colors.grey[900],
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 40,
+              height: 4,
+              margin: EdgeInsets.only(bottom: 20),
+              decoration: BoxDecoration(
+                color: Colors.grey[600],
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            Text(
+              'Share via',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            SizedBox(height: 24),
+            
+            // First row of share options
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              children: [
+                _buildMoreShareOption(
+                  icon: Icons.message,
+                  label: 'WhatsApp',
+                  color: Color(0xFF25D366),
+                  onTap: () async {
+                    Navigator.pop(context);
+                    try {
+                      await Share.share(shareText, subject: video.title);
+                      _showShareSuccessMessage('WhatsApp');
+                    } catch (e) {
+                      _showShareErrorMessage();
+                    }
+                  },
+                ),
+                _buildMoreShareOption(
+                  icon: Icons.camera_alt,
+                  label: 'Instagram',
+                  color: Color(0xFFE4405F),
+                  onTap: () async {
+                    Navigator.pop(context);
+                    try {
+                      await Share.share(shareText, subject: video.title);
+                      _showShareSuccessMessage('Instagram');
+                    } catch (e) {
+                      _showShareErrorMessage();
+                    }
+                  },
+                ),
+                _buildMoreShareOption(
+                  icon: Icons.send,
+                  label: 'Telegram',
+                  color: Color(0xFF0088CC),
+                  onTap: () async {
+                    Navigator.pop(context);
+                    try {
+                      await Share.share(shareText, subject: video.title);
+                      _showShareSuccessMessage('Telegram');
+                    } catch (e) {
+                      _showShareErrorMessage();
+                    }
+                  },
+                ),
+                _buildMoreShareOption(
+                  icon: Icons.alternate_email,
+                  label: 'Twitter',
+                  color: Color(0xFF1DA1F2),
+                  onTap: () async {
+                    Navigator.pop(context);
+                    try {
+                      await Share.share(shareText, subject: video.title);
+                      _showShareSuccessMessage('Twitter');
+                    } catch (e) {
+                      _showShareErrorMessage();
+                    }
+                  },
+                ),
+              ],
+            ),
+            SizedBox(height: 20),
+            
+            // Second row of share options
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              children: [
+                _buildMoreShareOption(
+                  icon: Icons.facebook,
+                  label: 'Facebook',
+                  color: Color(0xFF1877F2),
+                  onTap: () async {
+                    Navigator.pop(context);
+                    try {
+                      await Share.share(shareText, subject: video.title);
+                      _showShareSuccessMessage('Facebook');
+                    } catch (e) {
+                      _showShareErrorMessage();
+                    }
+                  },
+                ),
+                _buildMoreShareOption(
+                  icon: Icons.email,
+                  label: 'Email',
+                  color: Colors.orange,
+                  onTap: () async {
+                    Navigator.pop(context);
+                    try {
+                      await Share.share(shareText, subject: video.title);
+                      _showShareSuccessMessage('Email');
+                    } catch (e) {
+                      _showShareErrorMessage();
+                    }
+                  },
+                ),
+                _buildMoreShareOption(
+                  icon: Icons.link,
+                  label: 'Copy Link',
+                  color: Colors.deepPurple,
+                  onTap: () {
+                    Navigator.pop(context);
+                    _showShareSuccessMessage('Link copied');
+                  },
+                ),
+                _buildMoreShareOption(
+                  icon: Icons.more_horiz,
+                  label: 'More',
+                  color: Colors.grey,
+                  onTap: () async {
+                    Navigator.pop(context);
+                    try {
+                      await Share.share(shareText, subject: video.title);
+                    } catch (e) {
+                      _showShareErrorMessage();
+                    }
+                  },
+                ),
+              ],
+            ),
+            SizedBox(height: 24),
+            
+            // Cancel button
+            ElevatedButton(
+              onPressed: () => Navigator.pop(context),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.grey[800],
+                minimumSize: Size(double.infinity, 50),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              child: Text(
+                'Cancel',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+            SizedBox(height: 10),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMoreShareOption({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Column(
+        children: [
+          Container(
+            width: 60,
+            height: 60,
+            decoration: BoxDecoration(
+              color: color,
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(
+                  color: color.withOpacity(0.3),
+                  blurRadius: 8,
+                  offset: Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Icon(icon, color: Colors.white, size: 28),
+          ),
+          SizedBox(height: 8),
+          Text(
+            label,
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showShareSuccessMessage(String platform) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            Icon(Icons.check_circle, color: Colors.white),
+            SizedBox(width: 12),
+            Text('Shared via $platform!'),
+          ],
+        ),
+        backgroundColor: Colors.green,
+        duration: Duration(seconds: 2),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10),
+        ),
+      ),
+    );
+  }
+
+  void _showShareErrorMessage() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            Icon(Icons.error_outline, color: Colors.white),
+            SizedBox(width: 12),
+            Text('Failed to share. Please try again.'),
+          ],
+        ),
+        backgroundColor: Colors.red,
+        duration: Duration(seconds: 2),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10),
+        ),
+      ),
+    );
+  }
+
+  void _showUserProfile(String creator) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (context) => Container(
+        height: MediaQuery.of(context).size.height * 0.8,
+        decoration: BoxDecoration(
+          color: Colors.grey[900],
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: Column(
+          children: [
+            Container(
+              padding: EdgeInsets.all(20),
+              child: Column(
+                children: [
+                  CircleAvatar(
+                    radius: 50,
+                    backgroundColor: Colors.purple,
+                    child: Text(
+                      creator[0],
+                      style: TextStyle(color: Colors.white, fontSize: 32, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                  SizedBox(height: 16),
+                  Text(
+                    '@${creator.toLowerCase().replaceAll(' ', '_')}',
+                    style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
+                  ),
+                  SizedBox(height: 8),
+                  Text(
+                    'Content Creator & Influencer',
+                    style: TextStyle(color: Colors.grey[400], fontSize: 14),
+                  ),
+                  SizedBox(height: 16),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+                    children: [
+                      _buildProfileStat('Following', '123'),
+                      _buildProfileStat('Followers', '45.2K'),
+                      _buildProfileStat('Likes', '1.2M'),
+                    ],
+                  ),
+                  SizedBox(height: 20),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: () {
+                            Navigator.pop(context);
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('Following $creator!'),
+                                backgroundColor: Colors.green,
+                                duration: Duration(seconds: 1),
+                              ),
+                            );
+                          },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.purple,
+                            minimumSize: Size(0, 45),
+                          ),
+                          child: Text('Follow', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                        ),
+                      ),
+                      SizedBox(width: 12),
+                      Container(
+                        decoration: BoxDecoration(
+                          border: Border.all(color: Colors.grey[600]!),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: IconButton(
+                          onPressed: () {},
+                          icon: Icon(Icons.message, color: Colors.white),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: Container(
+                padding: EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Recent Videos',
+                      style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                    ),
+                    SizedBox(height: 12),
+                    Expanded(
+                      child: GridView.builder(
+                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: 3,
+                          crossAxisSpacing: 8,
+                          mainAxisSpacing: 8,
+                          childAspectRatio: 0.7,
+                        ),
+                        itemCount: 9,
+                        itemBuilder: (context, index) {
+                          return Container(
+                            decoration: BoxDecoration(
+                              color: Colors.grey[800],
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Stack(
+                              children: [
+                                Center(
+                                  child: Icon(Icons.play_arrow, color: Colors.white, size: 32),
+                                ),
+                                Positioned(
+                                  bottom: 4,
+                                  right: 4,
+                                  child: Text(
+                                    '${(index + 1) * 12}K',
+                                    style: TextStyle(color: Colors.white, fontSize: 10),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildProfileStat(String label, String value) {
+    return Column(
+      children: [
+        Text(
+          value,
+          style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+        ),
+        Text(
+          label,
+          style: TextStyle(color: Colors.grey[400], fontSize: 12),
+        ),
+      ],
+    );
+  }
+}
+
+class VideoData {
+  final String id;
+  final String videoUrl;
+  final String title;
+  final String description;
+  final String creator;
+  int likes;
+  int comments;
+  int shares;
+  final int duration;
+  bool isLiked;
+
+  VideoData({
+    required this.id,
+    required this.videoUrl,
+    required this.title,
+    required this.description,
+    required this.creator,
+    required this.likes,
+    required this.comments,
+    required this.shares,
+    required this.duration,
+    this.isLiked = false,
+  });
+}
